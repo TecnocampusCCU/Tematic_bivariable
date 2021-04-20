@@ -86,7 +86,7 @@ entitat_poi=""
 Fitxer=""
 Path_Inicial=expanduser("~")
 progress=None
-Versio_modul="V_Q3.210223"
+Versio_modul="V_Q3.210420"
 geometria=""
 QEstudis=None
 Detall_MEM=""
@@ -104,8 +104,13 @@ Camp_V2=""
 Vista_Previa=False
 TOP_Layer=""
 BOTTOM_Layer=""
-
-
+Calcula_coeficient=False
+num_elements_TOP=0
+num_elements_BOTTOM=0
+missatge_no_rotacio=False
+Tematic_Layer=""
+blend_mode_combo_box=""
+imatge=""
 class Tematic_Bivariable:
     """QGIS Plugin Implementation."""
 
@@ -139,11 +144,16 @@ class Tematic_Bivariable:
         self.dlg.Tematic_Bottom.currentIndexChanged.connect(self.on_Change_ComboBOTTOM)
         self.dlg.TOP_Reload.clicked.connect(self.Recarga_Llegenda_TOP)
         self.dlg.BOTTOM_Reload.clicked.connect(self.Recarga_Llegenda_BOTTOM)
+        self.dlg.Tematic_Reload.clicked.connect(self.Recarga_Llegenda_Tematic)
         self.dlg.btoInici.clicked.connect(self.on_click_Inici)
         self.dlg.combo.currentIndexChanged.connect(self.on_Change_combo_Paleta)
         self.dlg.VistaPrevia.clicked.connect(self.on_click_VistaPrevia)
+        self.dlg.Calcula_coef.clicked.connect(self.on_click_CalculaCoef)
         self.dlg.PaletaLayers.toggled.connect(self.on_toggled_Paleta)
-
+        self.dlg.CreaTematic1.clicked.connect(self.on_click_Tematic)
+        self.dlg.Tematic.currentIndexChanged.connect(self.on_change_Tematic_cmb)
+        self.dlg.tabWidget.currentChanged.connect(self.on_change_tabWidget)
+        self.dlg.Export_image.clicked.connect(self.export_legend)
         # Declare instance attributes
         self.actions = []
         self.menu = self.tr(u'&CCU')
@@ -252,7 +262,8 @@ class Tematic_Bivariable:
 
     def add_blend_mode_combobox(self):
         """Add blend mode combobox."""
-        self.blend_mode_combo_box = QgsBlendModeComboBox(self.dlg)
+        global blend_mode_combo_box
+        self.blend_mode_combo_box = QgsBlendModeComboBox(self.dlg.Paleta_panel)
         # Default value
         self.blend_mode = QPainter.CompositionMode_Multiply
         self.blend_mode_combo_box.setBlendMode(self.blend_mode)
@@ -263,7 +274,7 @@ class Tematic_Bivariable:
             self.assign_blend_mode
         )
         blend_mode_combo_box.setFixedSize(130,22)
-        blend_mode_combo_box.move(210,146)
+        blend_mode_combo_box.move(210,46)
 
     def assign_blend_mode(self, index):
         """Assign blend mode."""
@@ -330,14 +341,88 @@ class Tematic_Bivariable:
         self.dlg.progressBar.setVisible(False)
         self.dlg.progressBar.setMaximum(100)
         self.dlg.versio.setText(Versio_modul)
+        self.dlg.coef_text.setPlainText('')
+        self.dlg.setEnabled(True)
+
+        scene=QGraphicsScene()
+        self.dlg.graphic_preview.setScene(scene)
+        self.dlg.graphic_preview.scene().clear()
+
         self.Recarga_Llegenda_TOP()
+        self.Recarga_Llegenda_Tematic()
         self.Recarga_Llegenda_BOTTOM()
 
         # Add blend combobox and listen to event
-        if not hasattr(self, 'blend_mode_combo_box'):
+        if not hasattr(self.dlg.Paleta_panel, 'blend_mode_combo_box'):
             self.add_blend_mode_combobox()
         self.Carrega_Paletes()
         self.dlg.PaletaLayers.setChecked(True)
+        self.dlg.tabWidget.setCurrentIndex(0)
+
+    def on_change_tabWidget(self):
+        if self.dlg.tabWidget.currentIndex()==0:
+            self.dlg.btoInici.setVisible(True)
+        else:
+            self.dlg.btoInici.setVisible(False)
+
+
+        pass
+
+    def on_change_Tematic_cmb(self):
+        global Tematic_Layer
+        if self.dlg.Tematic.currentText() !='Selecciona una entitat':
+            Tematic_Layer = QgsProject.instance().mapLayersByName(self.dlg.Tematic.currentText())
+            self.Omple_Camps(self.dlg.Camp_tematic,Tematic_Layer[0],'num')
+        else:
+            self.dlg.Camp_tematic.clear()
+
+    def on_click_Tematic(self):
+        global Tematic_Layer
+        if Tematic_Layer!="" and self.dlg.Camp_tematic.currentText()!='':
+            Tematic=self.Fer_Tematic(self.dlg.Camp_tematic.currentText(),Tematic_Layer[0])
+            QgsProject.instance().addMapLayer(Tematic)
+            Tematic.triggerRepaint()
+        
+        
+
+    def Fer_Tematic(self,fieldname,vlayer):
+        #fieldname = self.dlg.Camp_tematic.currentText()
+        template = "%1 - %2"
+
+        numberOfClasses=int(float(self.dlg.LE_rang.text()))
+        myRangeList=[]
+        mysymbol=QgsFillSymbol()
+        if (self.dlg.ColorDegradat.currentText()=='Gris'):
+            colorRamp=QgsGradientColorRamp( QColor( 230, 230, 230 ), QColor( 60, 60, 60 ))
+        elif (self.dlg.ColorDegradat.currentText()=='Vermell'):
+            colorRamp=QgsGradientColorRamp( QColor( 255, 154, 154 ), QColor( 154, 0, 0 ))
+        elif (self.dlg.ColorDegradat.currentText()=='Groc'):
+            colorRamp=QgsGradientColorRamp( QColor( 255, 255, 154 ), QColor( 154, 154, 0 ))
+        elif (self.dlg.ColorDegradat.currentText()=='Blau'):
+            colorRamp=QgsGradientColorRamp( QColor( 154, 255, 255 ), QColor( 0, 0, 154 ))
+        elif (self.dlg.ColorDegradat.currentText()=='Verd'):
+            colorRamp=QgsGradientColorRamp( QColor( 154, 255, 154 ), QColor( 0, 154, 0 ))
+        
+        format = QgsRendererRangeLabelFormat()
+        
+        precision = 2
+        format.setFormat(template)
+        format.setPrecision(precision)
+        format.setTrimTrailingZeroes(False)
+        if (self.dlg.combo_Tipus.currentText()=='Quantil'):
+            renderer=QgsGraduatedSymbolRenderer.createRenderer(vlayer,fieldname,numberOfClasses,QgsGraduatedSymbolRenderer.Quantile,mysymbol,colorRamp)
+        elif (self.dlg.combo_Tipus.currentText()=='Interval igual'):
+            renderer=QgsGraduatedSymbolRenderer.createRenderer(vlayer,fieldname,numberOfClasses,QgsGraduatedSymbolRenderer.EqualInterval,mysymbol,colorRamp)
+        elif (self.dlg.combo_Tipus.currentText()=='Ruptures naturals'):
+            renderer=QgsGraduatedSymbolRenderer.createRenderer(vlayer,fieldname,numberOfClasses,QgsGraduatedSymbolRenderer.Jenks,mysymbol,colorRamp)
+        elif (self.dlg.combo_Tipus.currentText()=='Desviació estandard'):
+            renderer=QgsGraduatedSymbolRenderer.createRenderer(vlayer,fieldname,numberOfClasses,QgsGraduatedSymbolRenderer.StdDev,mysymbol,colorRamp)
+        elif (self.dlg.combo_Tipus.currentText()=='Pretty breaks'):
+            renderer=QgsGraduatedSymbolRenderer.createRenderer(vlayer,fieldname,numberOfClasses,QgsGraduatedSymbolRenderer.Pretty,mysymbol,colorRamp)
+        renderer.setLabelFormat(format,True)
+        vlayer.setOpacity(self.dlg.Transparencia.value()/100)
+        vlayer.setRenderer(renderer)
+        return vlayer
 
     def Carrega_Paletes(self):
         global img_Paletes
@@ -433,7 +518,10 @@ class Tematic_Bivariable:
         return img.mirrored(False,True)
 
     def on_toggled_Paleta(self):
+        global max_rangs
+        self.blend_mode_combo_box.setVisible(False)
         if self.dlg.PaletaLayers.isChecked():
+            max_rangs=5
             self.dlg.combo.setVisible(False)
             self.dlg.Reverse_Top.setVisible(True)
             self.dlg.Reverse_Bottom.setVisible(True)
@@ -443,12 +531,12 @@ class Tematic_Bivariable:
             if self.dlg.graphic_preview.scene() is not None:
                 self.dlg.graphic_preview.scene().clear()
         else:
+            max_rangs=4
             self.dlg.combo.setVisible(True)
             self.dlg.Reverse_Top.setVisible(False)
             self.dlg.Reverse_Bottom.setVisible(False)
             self.dlg.Rotate_axis.setVisible(False)
             self.dlg.VistaPrevia.setVisible(False)
-            self.blend_mode_combo_box.setVisible(False)
             self.dlg.combo.setCurrentIndex(0)
             if self.dlg.graphic_preview.scene() is not None:
                 self.dlg.graphic_preview.scene().clear()
@@ -463,11 +551,74 @@ class Tematic_Bivariable:
 
     def on_click_VistaPrevia(self):
         global Vista_Previa
+
         Vista_Previa=True
         #error=self.Control_Errors(Vista_Previa)
         #if (error==999):
         #    return
         self.on_click_Inici()
+
+    def on_click_CalculaCoef(self):
+        global Calcula_coeficient
+        Calcula_coeficient=True
+        self.on_click_Inici()
+
+    def Compara_tematics(self,Layer,Layer2):
+        f = QgsProcessingFeedback()
+        f.progressChanged.connect(self.progress_changed)
+        if (Qgis.QGIS_VERSION_INT < 30600):
+            sortida='memory:'
+        else:
+            sortida='TEMPORARY_OUTPUT'
+        
+        #sum(  (  "RMP_2017"  -  mean("RMP_2017" ))  *   ("Index"  -  mean("Index"  ) ) )/(sqrt(  sum( ("RMP_2017" - mean("RMP_2017" ))^2)) * sqrt(sum(("Index"  -  mean("Index"))^2)))
+        iguals=False
+        TEM1={
+            'INPUT' : Layer[0],
+            'LAYERS' : [Layer2[0]],
+            'OUTPUT': ''+sortida+''
+        }
+        SUPERPOSICIO_LAYER=processing.run('native:calculatevectoroverlaps', TEM1, feedback=f)
+        
+        list_attributes=SUPERPOSICIO_LAYER['OUTPUT'].fields().allAttributesList()
+        nom_de_camp=SUPERPOSICIO_LAYER['OUTPUT'].fields().field(len(list_attributes)-1).name()
+        
+        TEM1={
+            'INPUT_LAYER' : SUPERPOSICIO_LAYER['OUTPUT'],
+            'FIELD_NAME' : ''+nom_de_camp+'',
+            'OUTPUT': ''+sortida+''
+        }
+        ESTADISTIQUES_LAYER=processing.run('qgis:basicstatisticsforfields', TEM1, feedback=f)
+        #print(ESTADISTIQUES_LAYER)
+        #if round(ESTADISTIQUES_LAYER['STD_DEV'],3)==0:
+        if ESTADISTIQUES_LAYER['IQR']!=0:
+            QMessageBox.information(None, "Info", "Els temàtics no tenen la mateixa base, els resultats poden no ser correctes.")
+            return
+
+        TEM1={
+            'INPUT' : Layer2[0],
+            'LAYERS' : [Layer[0]],
+            'OUTPUT': ''+sortida+''
+        }
+        SUPERPOSICIO_LAYER=processing.run('native:calculatevectoroverlaps', TEM1, feedback=f)
+        
+        list_attributes=SUPERPOSICIO_LAYER['OUTPUT'].fields().allAttributesList()
+        nom_de_camp=SUPERPOSICIO_LAYER['OUTPUT'].fields().field(len(list_attributes)-1).name()
+        
+        TEM1={
+            'INPUT_LAYER' : SUPERPOSICIO_LAYER['OUTPUT'],
+            'FIELD_NAME' : ''+nom_de_camp+'',
+            'OUTPUT': ''+sortida+''
+        }
+        ESTADISTIQUES_LAYER=processing.run('qgis:basicstatisticsforfields', TEM1, feedback=f)
+        #print(ESTADISTIQUES_LAYER)
+        #if round(ESTADISTIQUES_LAYER['STD_DEV'],3)==0:
+        if ESTADISTIQUES_LAYER['IQR']!=0:
+            QMessageBox.information(None, "Info", "Els temàtics no tenen la mateixa base, els resultats poden no ser correctes.")
+        return 
+
+
+        
 
     def on_click_Inici(self):
 
@@ -479,10 +630,18 @@ class Tematic_Bivariable:
         global Vista_Previa
         global TOP_Layer
         global BOTTOM_Layer
+        global Calcula_coeficient
+        global num_elements_TOP
+        global num_elements_BOTTOM
+        global missatge_no_rotacio
+        global imatge
+
         s = QSettings()
         Camp_V1=""
         Camp_V2=""
+        missatge_no_rotacio=False
         self.dlg.coef_text.setPlainText('')
+
         Fitxer=datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
         consoleWidget = iface.mainWindow().findChild( QDockWidget, 'PythonConsole' )
         if consoleWidget is None:
@@ -494,6 +653,7 @@ class Tematic_Bivariable:
         
         error=self.Control_Errors(Vista_Previa)
         if (error==999):
+            self.dlg.combo.setCurrentIndex(0)
             return
         self.dlg.progressBar.setValue(0)
         self.dlg.progressBar.setVisible(True)
@@ -507,18 +667,30 @@ class Tematic_Bivariable:
             JOIN_VAR=self.Join_variables_tematics(V1_top,V2_bottom,Tipus_V2)
             #CoefCorrel
             CoefCorrelacio=self.CalculaCoefCorrel(JOIN_VAR,Tipus_V2,Tipus_V1)
+            print(CoefCorrelacio)
             if CoefCorrelacio!=999:
                 self.dlg.coef_text.setPlainText(str(CoefCorrelacio))
             else:
                 self.dlg.coef_text.setPlainText('')
                 QMessageBox.information(None, "Info", "El coeficient de correlació no es pot calcular degut a que un dels temàtics està basat en regles.")
-                
+            if Calcula_coeficient==True:
+                self.dlg.progressBar.setValue(0)
+                self.dlg.progressBar.setVisible(False)
+                self.dlg.setEnabled(True)
+                Calcula_coeficient=False
+                return
             layer_T3=self.Concatena_V1V2(JOIN_VAR,"comb_V1V2")
             symbol = QgsSymbol.defaultSymbol(layer_T3.geometryType())
             renderer = QgsRuleBasedRenderer(symbol)
         
         colors_TOP_Layer=self.get_colors_layer(TOP_Layer[0],False)
+        num_elements_TOP=len(colors_TOP_Layer)
         colors_BOTTOM_Layer=self.get_colors_layer(BOTTOM_Layer[0],False)
+        num_elements_BOTTOM=len(colors_BOTTOM_Layer)
+        if (num_elements_TOP!=num_elements_BOTTOM) and (self.dlg.Rotate_axis.isChecked()):
+            QMessageBox.information(None, "Info",  "Els temàtics no tenen el mateix nombre de elements, no es rotaran els eixos.")
+            self.dlg.Rotate_axis.setChecked(False)
+
         img_TOP_LAYER=self.generate_image(colors_TOP_Layer,len(colors_BOTTOM_Layer),len(colors_TOP_Layer),20,False)
 
         img_BOTTOM_LAYER=self.generate_image(colors_BOTTOM_Layer,len(colors_BOTTOM_Layer),len(colors_TOP_Layer),20,True)
@@ -529,22 +701,44 @@ class Tematic_Bivariable:
         painter.setCompositionMode(self.blend_mode)
         painter.drawImage(0,0,img_BOTTOM_LAYER)
         painter.end()
-        
+        imatge=img_TOP_LAYER
+
         if (Vista_Previa==False):
             matrix_colors=[]
             for x in range(len(colors_TOP_Layer)):
                 index_y=1
                 for y in reversed(range(len(colors_BOTTOM_Layer))):
                     tempColorRgb = img_TOP_LAYER.pixelColor(QPoint(20*(x+1)-10,20*(y+1)-10))
-                    #print (x+1,y+1,tempColorRgb.red(),tempColorRgb.green(),tempColorRgb.blue())
-                    #if self.dlg.Paleta_chk.isChecked():
                     if self.dlg.PaletaPredefinida.isChecked():
                         self.rule_based_style(layer_T3,renderer,index_top[x]+str(index_y),'"comb_V1V2"=\''+index_top[x]+str(index_y)+'\'',QColor(Paletes_RGB[self.dlg.combo.currentIndex()-1][index_y-1][x][0],Paletes_RGB[self.dlg.combo.currentIndex()-1][index_y-1][x][1],Paletes_RGB[self.dlg.combo.currentIndex()-1][index_y-1][x][2]))
                     else:
                         self.rule_based_style(layer_T3,renderer,index_top[x]+str(index_y),'"comb_V1V2"=\''+index_top[x]+str(index_y)+'\'',QColor(tempColorRgb.red(),tempColorRgb.green(),tempColorRgb.blue()))
-                    #print(Paletes_RGB[self.dlg.combo.currentIndex()-1][x][index_y-1][0],Paletes_RGB[self.dlg.combo.currentIndex()-1][x][index_y-1][1],Paletes_RGB[self.dlg.combo.currentIndex()-1][x][index_y-1][2])
                     index_y=index_y+1
             renderer.rootRule().removeChildAt(0)
+            if self.dlg.Show_Label.isChecked():
+                layer_settings  = QgsPalLayerSettings()
+                text_format = QgsTextFormat()
+
+                text_format.setFont(QFont("Arial", 12))
+                text_format.setSize(10)
+
+                buffer_settings = QgsTextBufferSettings()
+                buffer_settings.setEnabled(True)
+                buffer_settings.setSize(1)
+                buffer_settings.setColor(QColor("white"))
+
+                text_format.setBuffer(buffer_settings)
+                layer_settings.setFormat(text_format)
+
+                layer_settings.fieldName = "comb_V1V2"
+                layer_settings.placement = 1
+
+                layer_settings.enabled = True
+
+                layer_settings = QgsVectorLayerSimpleLabeling(layer_settings)
+
+                layer_T3.setLabelsEnabled(True)
+                layer_T3.setLabeling(layer_settings)
             layer_T3.triggerRepaint()
             iface.layerTreeView().refreshLayerSymbology(layer_T3.id())
         else:
@@ -556,11 +750,32 @@ class Tematic_Bivariable:
             item=QPixmap.fromImage(img_TOP_LAYER)
         scene=QGraphicsScene()
         scene.addPixmap(item)
+        vertical_text=[]
+        index_x=0
+        for x in reversed(range(len(colors_TOP_Layer))):
+            vertical_text.append(scene.addText(str(index_x+1)))
+            vertical_text[index_x].setPos(-15,x*20)
+            index_x=index_x+1
+
+        horizontal_text=[]
+        index_y=0
+        for y in range(len(colors_BOTTOM_Layer)):
+            horizontal_text.append(scene.addText(index_top[y]))
+            horizontal_text[index_y].setPos(3+y*20,len(colors_TOP_Layer)*20)
+            index_y=index_y+1
+        
+        self.Compara_tematics(TOP_Layer,BOTTOM_Layer)
+
         self.dlg.graphic_preview.setScene(scene)
         self.dlg.progressBar.setValue(0)
         self.dlg.progressBar.setVisible(False)
         self.dlg.setEnabled(True)
+        Calcula_coeficient=False
 
+        #item = QGraphicsPixmapItem(pixmap)
+        #scene.addItem(item)
+
+        #item.setPos(10, )
     def Control_Errors(self,VistaPrevia):
         global TOP_Layer
         global BOTTOM_Layer
@@ -677,6 +892,9 @@ class Tematic_Bivariable:
         The input are a list of QColor, the height, the width
         and reverse for color ordering (x or y)
         """
+        global num_elements_TOP
+        global num_elements_BOTTOM
+        global missatge_no_rotacio
         origin_x = 0
         origin_y = 0
         w, h = width * square_size, height * square_size
@@ -716,11 +934,25 @@ class Tematic_Bivariable:
 
         img = img.mirrored(Reverse_Bottom,Reverse_Top)
         # Rotate if necessary
+
         if self.dlg.Rotate_axis.isChecked():
             trans = QTransform()
             trans.rotate(90)
             img = img.transformed(trans)
         return img 
+
+    def export_legend(self):
+        global imatge
+        """Export legend to image."""
+        if (imatge is not None):
+            filename = QFileDialog.getSaveFileName(None,'Gravar Llegenda', '', "imatge PNG  (*.png)")
+            if filename and isinstance(filename, tuple):
+                #imatge.save(filename[0])
+                pixmap = self.dlg.graphic_preview.grab()
+                pixmap.save(filename[0])
+                QMessageBox.information(None, "Info", "Imatge exportada a "+filename[0])
+
+
 
     def get_colors_layer(self,layer, reverse):
         """Extract colors from vector layer styles."""
@@ -746,7 +978,7 @@ class Tematic_Bivariable:
         root_rule.appendChild(rule)
         layer.setRenderer(renderer)
 
-    def Calcula_index_tematic(self,Layer,index,nom_camp,):
+    def Calcula_index_tematic(self,Layer,index,nom_camp):
         
         #print (Layer[0].renderer().type())
         #print (nom_camp)
@@ -757,7 +989,6 @@ class Tematic_Bivariable:
             regla=Layer[0].renderer().classAttribute()
             #print(regla)
             Camp=regla
-
             for ran in Layer[0].renderer().ranges():
                 V1_expressio=V1_expressio+'if(("'+regla+'">='+str(ran.lowerValue())+') and ("'+regla+'"<='+str(ran.upperValue())+'),\''+index[valor]+'\','
                 valor=valor+1
@@ -785,6 +1016,7 @@ class Tematic_Bivariable:
             Tipus="REGLA"
             V1_expressio=''
             valor=0
+
             for fil in Layer[0].renderer().rootRule().children():
                 #print(TOP_Layer[0].renderer().rootRule().children()[0].filterExpression())
                 regla=fil.filterExpression()
@@ -827,8 +1059,7 @@ class Tematic_Bivariable:
 
         Layer_V2_mod=processing.run('qgis:fieldcalculator', alg, feedback=f)                
         Camp_V2=Camp_V2+'_V2'
-        QgsProject.instance().addMapLayer(Layer_V2_mod['OUTPUT'])
-
+        #QgsProject.instance().addMapLayer(Layer_V2_mod['OUTPUT'])
         if Tipus!="REGLA":
             FIELDS=['V2',Camp_V2]
         else:
@@ -1000,21 +1231,96 @@ class Tematic_Bivariable:
             Top_Layer = QgsProject.instance().mapLayersByName(self.dlg.Tematic_Bottom.currentText())
 
     def Recarga_Llegenda_TOP(self):
-        self.cerca_elements_Leyenda(self.dlg.Tematic_Top,'all')    
+        self.cerca_elements_Leyenda(self.dlg.Tematic_Top,'all','Selecciona un temàtic')    
+
+    def Recarga_Llegenda_Tematic(self):
+        self.cerca_elements_Leyenda(self.dlg.Tematic,'all','Selecciona una entitat')    
 
     def on_Change_combo_Paleta(self):
         global img_Paletes
+        global TOP_Layer
+        global BOTTOM_Layer
         if (self.dlg.combo.currentText()!='Selecciona Paleta'):
+            '''
             item=QPixmap.fromImage(img_Paletes[self.dlg.combo.currentIndex()-1])
             scene=QGraphicsScene()
             scene.addPixmap(item)
             self.dlg.graphic_preview.setScene(scene)
+            '''
+            if (self.dlg.Tematic_Top.currentText()=='Selecciona un temàtic'):
+                QMessageBox.information(None, "Error", "S'ha de seleccionar un temàtic a la selecció de Tematic 1.")
+                self.dlg.combo.setCurrentIndex(0)
+                return
+            if (self.dlg.Tematic_Bottom.currentText()=='Selecciona un temàtic'):
+                QMessageBox.information(None, "Error", "S'ha de seleccionar un temàtic a la selecció de Tematic 2.")
+                self.dlg.combo.setCurrentIndex(0)
+                return
+            
+            TOP_Layer = QgsProject.instance().mapLayersByName(self.dlg.Tematic_Top.currentText())
+            BOTTOM_Layer = QgsProject.instance().mapLayersByName(self.dlg.Tematic_Bottom.currentText())
 
+            if TOP_Layer[0].renderer().type()=='graduatedSymbol':
+                longitud_TOP=len(TOP_Layer[0].renderer().ranges())
+            if TOP_Layer[0].renderer().type()=='categorizedSymbol':
+                longitud_TOP=len(TOP_Layer[0].renderer().categories())
+            if TOP_Layer[0].renderer().type()=='RuleRenderer':
+                longitud_TOP=len(TOP_Layer[0].renderer().rootRule().children())
+
+            if BOTTOM_Layer[0].renderer().type()=='graduatedSymbol':
+                longitud_BOTTOM=len(BOTTOM_Layer[0].renderer().ranges())
+            if BOTTOM_Layer[0].renderer().type()=='categorizedSymbol':
+                longitud_BOTTOM=len(BOTTOM_Layer[0].renderer().categories())
+            if BOTTOM_Layer[0].renderer().type()=='RuleRenderer':
+                longitud_BOTTOM=len(BOTTOM_Layer[0].renderer().rootRule().children())
+
+            if longitud_TOP!=longitud_BOTTOM:
+                QMessageBox.information(None, "Error", "Els dos temàtics no tenen el mateix nombre d'elements.")
+                self.dlg.combo.setCurrentIndex(0)
+                return
+            else:
+
+                if longitud_TOP==3 and self.dlg.combo.currentIndex()<18:
+                    print("OK")
+                elif longitud_TOP==3 and self.dlg.combo.currentIndex()>=18:
+                    QMessageBox.information(None, "Error", "La paleta escollida (4x4) no és adequada pels temàtics seleccionats.")
+                    self.dlg.combo.setCurrentIndex(0)
+                    return
+                if longitud_TOP==4 and self.dlg.combo.currentIndex()<18:
+                    QMessageBox.information(None, "Error", "La paleta escollida (3x3) no és adequada pels temàtics seleccionats.")
+                    self.dlg.combo.setCurrentIndex(0)
+                    return
+                elif longitud_TOP==4 and self.dlg.combo.currentIndex()>=18:
+                    print("OK")
+
+            self.on_click_VistaPrevia()
         
     def Recarga_Llegenda_BOTTOM(self):
-        self.cerca_elements_Leyenda(self.dlg.Tematic_Bottom,'all')    
+        self.cerca_elements_Leyenda(self.dlg.Tematic_Bottom,'all','Selecciona un temàtic')    
 
-    def cerca_elements_Leyenda(self,combo,tipus): #tipus ha de ser QgsWkbTypes.Point or el que sigui
+    def Omple_Camps(self,llista,layer,filtro):
+        """Aquesta funcio omple els camps de l'entitat Detall seleccionada"""
+        llista.clear()
+        indice=0
+        for index,field in enumerate(layer.fields(),start=0):
+            if (filtro=='text'):
+                if (field.type()==10):
+                    llista.addItem(field.name())
+                    llista.item(indice).setToolTip(str(field.type()))
+                    indice=indice+1
+            elif (filtro=='num'):
+                if (field.type() in [2,3,4,5,6]):
+                    llista.addItem(field.name())
+                    #llista.item(indice).setToolTip(str(field.type()))
+                    indice=indice+1
+            elif (filtro=='tot'):
+                llista.addItem(field.name())
+                #llista.item(indice).setToolTip(str(field.type()))
+                indice=indice+1
+        QApplication.processEvents()
+        
+
+
+    def cerca_elements_Leyenda(self,combo,tipus,Primera_Opcio): #tipus ha de ser QgsWkbTypes.Point or el que sigui
         
         if combo != 'Selecciona connexió':
             try: #Accedir als elements de la llegenda que siguin de tipus punt.
@@ -1029,7 +1335,7 @@ class Tematic_Bivariable:
                             aux.append(layer.name())
 
                         
-                self.ompleCombos(combo, aux, 'Selecciona un temàtic', True)
+                self.ompleCombos(combo, aux,Primera_Opcio , True)
             except Exception as ex:
                 missatge="Error al afegir els elements de la llegenda"
                 print (missatge)
